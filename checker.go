@@ -52,15 +52,33 @@ type execRule struct {
 	task                       Task
 	scheduleTicks              scheduler
 	failuresCount              int
-	minFailuresCountForTrigger int
 	cancellation               chan struct{}
+	failureOptions 			   *FailureOptions
+}
+
+// Notifier can be set on a Checker to report failed tasks.
+type Notifier interface {
+	Notify(e error)
+}
+
+// FailureOptions define when to report a detected task failure.
+type FailureOptions struct {
+	// Number of consequent task failures required to report a failure.
+	ReportFailuresCount int
+}
+
+// DefaultFailureOptions are used if Checker of Task level options (with AddXXX methods) are not set.
+var DefaultFailureOptions = FailureOptions{
+	ReportFailuresCount: 3,
 }
 
 // Checker runs configured tasks with a specified schedule.
 type Checker struct {
 	rules []execRule
-
 	stopSync sync.WaitGroup
+
+	Notifier Notifier
+	DefaultFailureOptions *FailureOptions
 }
 
 func generateDelay(period, flex time.Duration) time.Duration {
@@ -96,15 +114,22 @@ func createPeriodSchedule(period, flex time.Duration, cancel <-chan struct{}) <-
 // Flex parameter allows adding random component to task scheduling:
 // next task invocation will happen at now + period +/- flex.
 func (c *Checker) AddTaskWithPeriod(task Task, period, flex time.Duration) {
+	c.addTaskWithPeriodWithOptions(task, period, flex, c.DefaultFailureOptions)
+}
+
+func (c *Checker) addTaskWithPeriodWithOptions(task Task, period, flex time.Duration, options *FailureOptions) {
+	fo := options
+	if fo == nil {
+		fo = &DefaultFailureOptions
+	}
 	cancel := make(chan struct{}, 1)
 	c.rules = append(c.rules, execRule{
 		task: task,
 		scheduleTicks: func() <-chan struct{} {
 			return createPeriodSchedule(period, flex, cancel)
 		},
-		failuresCount:              0,
-		minFailuresCountForTrigger: 0,
 		cancellation:               cancel,
+		failureOptions: 			fo,
 	})
 }
 
@@ -117,9 +142,10 @@ func (c *Checker) Run(ctx context.Context) {
 		go func() {
 			for range r.scheduleTicks() {
 				if err := r.task.Run(ctx); err != nil {
-					if r.failuresCount < r.minFailuresCountForTrigger {
+					reportCount := r.failureOptions.ReportFailuresCount
+					if r.failuresCount < reportCount {
 						r.failuresCount++
-						if r.failuresCount == r.minFailuresCountForTrigger {
+						if r.failuresCount == reportCount {
 							c.notify(err)
 						}
 					}
@@ -133,7 +159,10 @@ func (c *Checker) Run(ctx context.Context) {
 }
 
 func (c *Checker) notify(err error) {
-	// TODO
+	n := c.Notifier
+	if n != nil {
+		n.Notify(err)
+	}
 }
 
 // Stop cancels currently scheduled task invocations.

@@ -3,6 +3,7 @@ package healthy
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -78,4 +79,78 @@ func TestChecker_AddTaskWithPeriod(t *testing.T) {
 		t.Errorf("Timeout testing checker run!")
 	case <-testSync:
 	}
+}
+
+type fn func(e error)
+func (f fn) Notify(e error) {
+	f(e)
+}
+
+func TestChecker_AddTaskWithPeriod_Notifier(t *testing.T) {
+	taskResults := []error{
+		fmt.Errorf("failure1"),
+		fmt.Errorf("failure2"),
+		fmt.Errorf("failure3"),
+		nil,
+		fmt.Errorf("failure4"),
+		fmt.Errorf("failure5"),
+		fmt.Errorf("failure6"),
+		nil,
+	}
+	period := 50 * time.Millisecond
+	checker := &Checker{}
+	checker.DefaultFailureOptions = &FailureOptions{ReportFailuresCount: 2}
+	resultIndex := 0
+	checker.AddTaskWithPeriod(
+		funcTask(func(ctx context.Context) error {
+			res := taskResults[resultIndex]
+			resultIndex = (resultIndex + 1) % len(taskResults)
+			return res
+		}),
+		period,
+		0,
+	)
+
+	var reportedErrors []error
+	checker.Notifier = fn(func (e error) {
+		reportedErrors = append(reportedErrors, e)
+	})
+
+	checker.Run(context.Background())
+	time.Sleep(period * time.Duration(len(taskResults)) + period / 4)
+	checker.Stop()
+
+	if len(reportedErrors) != 2 {
+		t.Errorf("Unexpected errors count. Expected 2, got %s", reportedErrors)
+	} else {
+		if !strings.Contains(reportedErrors[0].Error(), "failure2") {
+			t.Errorf("Unexpected error 1 %s", reportedErrors[0])
+		}
+		if !strings.Contains(reportedErrors[1].Error(), "failure5") {
+			t.Errorf("Unexpected error 1 %s", reportedErrors[1])
+		}
+	}
+}
+
+func ExampleChecker() {
+	counter := 1
+
+	var checker Checker
+	checker.AddTaskWithPeriod(
+		funcTask(func (ctx context.Context) error {
+			fmt.Printf("Running check %d\n", counter)
+			counter++
+			return nil
+		}),
+		500 * time.Millisecond,
+		0,
+	)
+
+	checker.Run(context.Background())
+	time.Sleep(1100 * time.Millisecond)
+	checker.Stop()
+
+	// Output:
+	// Running check 1
+	// Running check 2
 }

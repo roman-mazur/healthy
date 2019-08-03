@@ -16,11 +16,11 @@ var httpClient = &http.Client{
 // HttpCheck is a task that makes a GET HTTP request.
 type HttpCheck struct {
 	// What to check.
-	Url string
+	Url string `json:"url"`
 	// Expected HTTP status code in the response.
-	ExpectedStatusCode int
+	ExpectedStatusCode int `json:"expectedStatusCode"`
 	// Request timeout.
-	Timeout time.Duration
+	Timeout time.Duration `json:"timeout"`
 }
 
 func (h *HttpCheck) Name() string {
@@ -28,9 +28,14 @@ func (h *HttpCheck) Name() string {
 	return fmt.Sprintf("HTTP check for %s", u.Host)
 }
 
-func (h *HttpCheck) Run(context context.Context) error {
+func (h *HttpCheck) Run(ctx context.Context) error {
 	req, _ := http.NewRequest("GET", h.Url, nil)
-	req = req.WithContext(context)
+	reqCtx := ctx
+	if h.Timeout != 0 {
+		reqCtx, _ = context.WithTimeout(ctx, h.Timeout)
+	}
+	req = req.WithContext(reqCtx)
+
 	if resp, err := httpClient.Do(req); err == nil {
 		if resp.StatusCode != h.ExpectedStatusCode {
 			return fmt.Errorf("response code does not match: expected %d, got %d",
