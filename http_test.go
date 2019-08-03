@@ -12,7 +12,7 @@ import (
 func TestHttpCheck_Run(t *testing.T) {
 	var endpointHit bool
 
-	var stubHttp http.HandlerFunc = func (rw http.ResponseWriter, r *http.Request) {
+	var stubHttp http.HandlerFunc = func(rw http.ResponseWriter, r *http.Request) {
 		endpointHit = true
 		rw.WriteHeader(207)
 	}
