@@ -2,6 +2,7 @@ package healthy // import "rmazur.io/healthy"
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
@@ -53,7 +54,12 @@ type execRule struct {
 	scheduleTicks              scheduler
 	failuresCount              int
 	cancellation               chan struct{}
+	retries					   chan time.Duration
 	failureOptions 			   *FailureOptions
+}
+
+func (er *execRule) nextRetryDelay() time.Duration {
+	return er.failureOptions.FirstRetryDelay * (1 << uint(er.failuresCount-1))
 }
 
 // Notifier can be set on a Checker to report failed tasks.
@@ -65,11 +71,14 @@ type Notifier interface {
 type FailureOptions struct {
 	// Number of consequent task failures required to report a failure.
 	ReportFailuresCount int
+	// Delay before first retry in case of task failure.
+	FirstRetryDelay time.Duration
 }
 
 // DefaultFailureOptions are used if Checker of Task level options (with AddXXX methods) are not set.
 var DefaultFailureOptions = FailureOptions{
 	ReportFailuresCount: 3,
+	FirstRetryDelay: 3 * time.Second,
 }
 
 // Checker runs configured tasks with a specified schedule.
@@ -79,6 +88,8 @@ type Checker struct {
 
 	Notifier Notifier
 	DefaultFailureOptions *FailureOptions
+
+	Logger *log.Logger
 }
 
 func generateDelay(period, flex time.Duration) time.Duration {
@@ -90,10 +101,11 @@ func generateDelay(period, flex time.Duration) time.Duration {
 
 var tickMessage = struct{}{}
 
-func createPeriodSchedule(period, flex time.Duration, cancel <-chan struct{}) <-chan struct{} {
+func createPeriodSchedule(period, flex time.Duration, retry <-chan time.Duration, cancel <-chan struct{}) <-chan struct{} {
 	ticks := make(chan struct{}, 1)
 	var timer *time.Timer
 
+	// Handle cancellation signal.
 	go func() {
 		<-cancel
 		if timer != nil {
@@ -102,11 +114,21 @@ func createPeriodSchedule(period, flex time.Duration, cancel <-chan struct{}) <-
 		close(ticks)
 	}()
 
+	// Normal handler.
 	timer = time.AfterFunc(generateDelay(period, flex), func() {
 		ticks <- tickMessage
 		timer.Reset(generateDelay(period, flex))
 	})
 
+	// Handle retry durations.
+	go func() {
+		for nextRetryDelay := range retry {
+			timer.Reset(nextRetryDelay)
+		}
+	}()
+
+	// Send initial tick.
+	ticks <- tickMessage
 	return ticks
 }
 
@@ -123,12 +145,14 @@ func (c *Checker) addTaskWithPeriodWithOptions(task Task, period, flex time.Dura
 		fo = &DefaultFailureOptions
 	}
 	cancel := make(chan struct{}, 1)
+	retries := make(chan time.Duration, 1)
 	c.rules = append(c.rules, execRule{
 		task: task,
 		scheduleTicks: func() <-chan struct{} {
-			return createPeriodSchedule(period, flex, cancel)
+			return createPeriodSchedule(period, flex, retries, cancel)
 		},
 		cancellation:               cancel,
+		retries: 					retries,
 		failureOptions: 			fo,
 	})
 }
@@ -139,20 +163,31 @@ func (c *Checker) Run(ctx context.Context) {
 	c.stopSync.Add(len(c.rules))
 
 	for _, r := range c.rules {
+		rule := r
 		go func() {
-			for range r.scheduleTicks() {
-				if err := r.task.Run(ctx); err != nil {
-					reportCount := r.failureOptions.ReportFailuresCount
-					if r.failuresCount < reportCount {
-						r.failuresCount++
-						if r.failuresCount == reportCount {
+			for range rule.scheduleTicks() {
+				lg := c.Logger
+				if err := rule.task.Run(ctx); err != nil {
+					if lg != nil {
+						lg.Printf("Task %s failed with %s", rule.task.Name(), err)
+					}
+					reportCount := rule.failureOptions.ReportFailuresCount
+					if rule.failuresCount < reportCount {
+						rule.failuresCount++
+						if rule.failuresCount == reportCount {
 							c.notify(err)
+						} else {
+							rule.retries <- rule.nextRetryDelay()
 						}
 					}
 				} else {
-					r.failuresCount = 0
+					rule.failuresCount = 0
+					if lg != nil {
+						lg.Printf("Task %s succeeded", rule.task.Name())
+					}
 				}
 			}
+			close(rule.retries)
 			c.stopSync.Done()
 		}()
 	}

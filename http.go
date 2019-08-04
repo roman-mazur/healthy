@@ -16,11 +16,11 @@ var httpClient = &http.Client{
 // HttpCheck is a task that makes a GET HTTP request.
 type HttpCheck struct {
 	// What to check.
-	Url string `json:"url"`
+	Url string
 	// Expected HTTP status code in the response.
-	ExpectedStatusCode int `json:"expectedStatusCode"`
+	ExpectedStatusCode int
 	// Request timeout.
-	Timeout time.Duration `json:"timeout"`
+	Timeout time.Duration
 }
 
 func (h *HttpCheck) Name() string {
