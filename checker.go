@@ -72,10 +72,15 @@ var tickMessage = struct{}{}
 func createPeriodSchedule(period, flex time.Duration, retry <-chan time.Duration, cancel <-chan struct{}) <-chan struct{} {
 	ticks := make(chan struct{}, 1)
 	var timer *time.Timer
+	stopped := false
+	var stopMutex sync.Mutex
 
 	// Handle cancellation signal.
 	go func() {
 		<-cancel
+		stopMutex.Lock()
+		defer stopMutex.Unlock()
+		stopped = true
 		if timer != nil {
 			timer.Stop()
 		}
@@ -84,6 +89,11 @@ func createPeriodSchedule(period, flex time.Duration, retry <-chan time.Duration
 
 	// Normal handler.
 	timer = time.AfterFunc(generateDelay(period, flex), func() {
+		stopMutex.Lock()
+		defer stopMutex.Unlock()
+		if stopped {
+			return
+		}
 		ticks <- tickMessage
 		timer.Reset(generateDelay(period, flex))
 	})

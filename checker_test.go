@@ -18,36 +18,6 @@ func (f funcTask) Run(ctx context.Context) error {
 	return f(ctx)
 }
 
-func TestWithRetries(t *testing.T) {
-	counter := 0
-	failure := func(ctx context.Context) error {
-		counter++
-		return fmt.Errorf("test")
-	}
-
-	err := WithRetries(funcTask(failure), 5).Run(context.Background())
-	if err == nil || err.Error() != "test" {
-		t.Errorf("An error was expected, got %s", err)
-	} else if counter != 5 {
-		t.Errorf("Expected 5 retries, got %d", counter)
-	}
-
-	counter = 0
-	handler := func(ctx context.Context) error {
-		counter++
-		if counter == 2 {
-			return nil
-		}
-		return fmt.Errorf("test")
-	}
-	err = WithRetries(funcTask(handler), 5).Run(context.Background())
-	if err != nil {
-		t.Errorf("Got an error %s", err)
-	} else if counter != 2 {
-		t.Errorf("Expected 2 retries, got %d", counter)
-	}
-}
-
 func TestChecker_AddTaskWithPeriod(t *testing.T) {
 	var handlerTicks []time.Time
 
@@ -81,10 +51,10 @@ func TestChecker_AddTaskWithPeriod(t *testing.T) {
 	}
 }
 
-type fn func(e error)
+type fn func(taskName string, e error)
 
-func (f fn) Notify(e error) {
-	f(e)
+func (f fn) Notify(taskName string, e error) {
+	f(taskName, e)
 }
 
 func TestChecker_AddTaskWithPeriod_Notifier(t *testing.T) {
@@ -100,7 +70,7 @@ func TestChecker_AddTaskWithPeriod_Notifier(t *testing.T) {
 	}
 	period := 50 * time.Millisecond
 	checker := &Checker{}
-	checker.DefaultFailureOptions = &FailureOptions{ReportFailuresCount: 2}
+	checker.DefaultFailureOptions = &FailureOptions{ReportFailuresCount: 2, FirstRetryDelay: 0}
 	resultIndex := 0
 	checker.AddTaskWithPeriod(
 		funcTask(func(ctx context.Context) error {
@@ -113,12 +83,12 @@ func TestChecker_AddTaskWithPeriod_Notifier(t *testing.T) {
 	)
 
 	var reportedErrors []error
-	checker.Notifier = fn(func(e error) {
+	checker.Notifier = fn(func(taskName string, e error) {
 		reportedErrors = append(reportedErrors, e)
 	})
 
 	checker.Run(context.Background())
-	time.Sleep(period*time.Duration(len(taskResults)) + period/4)
+	time.Sleep(period*time.Duration(len(taskResults)-4) + period/4)
 	checker.Stop()
 
 	if len(reportedErrors) != 2 {
@@ -154,4 +124,5 @@ func ExampleChecker() {
 	// Output:
 	// Running check 1
 	// Running check 2
+	// Running check 3
 }
