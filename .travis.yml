@@ -1,0 +1,9 @@
+language: go
+
+go:
+  - "1.12"
+
+go_import_path: rmazur.io/healthy
+
+script:
+  - go test -v ./...
