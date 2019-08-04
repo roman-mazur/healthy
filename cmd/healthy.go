@@ -23,20 +23,20 @@ func (d *duration) UnmarshalJSON(data []byte) error {
 }
 
 type httpCheckConfig struct {
-	Url string `json:"url"`
-	ExpectedStatusCode int `json:"expectedStatusCode"`
+	Url                string `json:"url"`
+	ExpectedStatusCode int    `json:"expectedStatusCode"`
 
-	Timeout   duration `json:"timeout"`
+	Timeout duration `json:"timeout"`
 
 	Period duration `json:"period"`
 	Flex   duration `json:"flex"`
 }
 
 type config struct {
-	HttpChecks []*httpCheckConfig `json:"httpChecks"`
-	ReportFailuresCount int `json:"reportFailuresCount"`
-	FirstRetryDelay duration `json:"firstRetryDelay"`
-	Twillio    struct {
+	HttpChecks          []*httpCheckConfig `json:"httpChecks"`
+	ReportFailuresCount int                `json:"reportFailuresCount"`
+	FirstRetryDelay     duration           `json:"firstRetryDelay"`
+	Twillio             struct {
 		AccountId string `json:"accountId"`
 		AuthToken string `json:"authToken"`
 		From      string `json:"from"`
@@ -48,15 +48,15 @@ type logNotifier struct {
 	*log.Logger
 }
 
-func (l *logNotifier) Notify(e error) {
-	l.Printf("New failure detected - %s", e)
+func (l *logNotifier) Notify(taskName string, e error) {
+	l.Printf("New failure detected for task %s - %s", taskName, e)
 }
 
 type compositeNotifier []healthy.Notifier
 
-func (c compositeNotifier) Notify(e error) {
+func (c compositeNotifier) Notify(taskName string, e error) {
 	for _, n := range c {
-		n.Notify(e)
+		n.Notify(taskName, e)
 	}
 }
 

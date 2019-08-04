@@ -50,12 +50,12 @@ func (rt *retryableTask) Run(ctx context.Context) error {
 type scheduler func() <-chan struct{}
 
 type execRule struct {
-	task                       Task
-	scheduleTicks              scheduler
-	failuresCount              int
-	cancellation               chan struct{}
-	retries					   chan time.Duration
-	failureOptions 			   *FailureOptions
+	task           Task
+	scheduleTicks  scheduler
+	failuresCount  int
+	cancellation   chan struct{}
+	retries        chan time.Duration
+	failureOptions *FailureOptions
 }
 
 func (er *execRule) nextRetryDelay() time.Duration {
@@ -64,7 +64,7 @@ func (er *execRule) nextRetryDelay() time.Duration {
 
 // Notifier can be set on a Checker to report failed tasks.
 type Notifier interface {
-	Notify(e error)
+	Notify(taskName string, e error)
 }
 
 // FailureOptions define when to report a detected task failure.
@@ -78,15 +78,15 @@ type FailureOptions struct {
 // DefaultFailureOptions are used if Checker of Task level options (with AddXXX methods) are not set.
 var DefaultFailureOptions = FailureOptions{
 	ReportFailuresCount: 3,
-	FirstRetryDelay: 3 * time.Second,
+	FirstRetryDelay:     3 * time.Second,
 }
 
 // Checker runs configured tasks with a specified schedule.
 type Checker struct {
-	rules []execRule
+	rules    []execRule
 	stopSync sync.WaitGroup
 
-	Notifier Notifier
+	Notifier              Notifier
 	DefaultFailureOptions *FailureOptions
 
 	Logger *log.Logger
@@ -151,9 +151,9 @@ func (c *Checker) addTaskWithPeriodWithOptions(task Task, period, flex time.Dura
 		scheduleTicks: func() <-chan struct{} {
 			return createPeriodSchedule(period, flex, retries, cancel)
 		},
-		cancellation:               cancel,
-		retries: 					retries,
-		failureOptions: 			fo,
+		cancellation:   cancel,
+		retries:        retries,
+		failureOptions: fo,
 	})
 }
 
@@ -175,7 +175,7 @@ func (c *Checker) Run(ctx context.Context) {
 					if rule.failuresCount < reportCount {
 						rule.failuresCount++
 						if rule.failuresCount == reportCount {
-							c.notify(err)
+							c.notify(rule.task, err)
 						} else {
 							rule.retries <- rule.nextRetryDelay()
 						}
@@ -193,10 +193,10 @@ func (c *Checker) Run(ctx context.Context) {
 	}
 }
 
-func (c *Checker) notify(err error) {
+func (c *Checker) notify(task Task, err error) {
 	n := c.Notifier
 	if n != nil {
-		n.Notify(err)
+		n.Notify(task.Name(), err)
 	}
 }
 

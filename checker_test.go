@@ -82,6 +82,7 @@ func TestChecker_AddTaskWithPeriod(t *testing.T) {
 }
 
 type fn func(e error)
+
 func (f fn) Notify(e error) {
 	f(e)
 }
@@ -112,12 +113,12 @@ func TestChecker_AddTaskWithPeriod_Notifier(t *testing.T) {
 	)
 
 	var reportedErrors []error
-	checker.Notifier = fn(func (e error) {
+	checker.Notifier = fn(func(e error) {
 		reportedErrors = append(reportedErrors, e)
 	})
 
 	checker.Run(context.Background())
-	time.Sleep(period * time.Duration(len(taskResults)) + period / 4)
+	time.Sleep(period*time.Duration(len(taskResults)) + period/4)
 	checker.Stop()
 
 	if len(reportedErrors) != 2 {
@@ -137,12 +138,12 @@ func ExampleChecker() {
 
 	var checker Checker
 	checker.AddTaskWithPeriod(
-		funcTask(func (ctx context.Context) error {
+		funcTask(func(ctx context.Context) error {
 			fmt.Printf("Running check %d\n", counter)
 			counter++
 			return nil
 		}),
-		500 * time.Millisecond,
+		500*time.Millisecond,
 		0,
 	)
 

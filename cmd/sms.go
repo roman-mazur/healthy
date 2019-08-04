@@ -21,11 +21,11 @@ type twillio struct {
 	lg *log.Logger
 }
 
-func (t *twillio) Notify(e error) {
+func (t *twillio) Notify(taskName string, e error) {
 	formData := &url.Values{}
 	formData.Set("To", t.receiverNumber)
 	formData.Set("From", t.senderNumber)
-	formData.Set("Body", fmt.Sprintf("healthy\nNew feailure detected\n%s", e))
+	formData.Set("Body", fmt.Sprintf("healthy\nNew feailure detected for %s\n%s", taskName, e))
 	req, err := http.NewRequest(
 		"POST",
 		fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", t.accountSid),
@@ -39,10 +39,10 @@ func (t *twillio) Notify(e error) {
 	req.Header.Set("accept", "application/json")
 
 	if resp, err := twillioClient.Do(req); err == nil {
-		if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusCreated {
 			t.lg.Printf("Unexpected Twillio response: %d", resp.StatusCode)
-		} else {
-			t.lg.Printf("Cannot post to Twillio: %s", err)
 		}
+	} else {
+		t.lg.Printf("Cannot post to Twillio: %s", err)
 	}
 }
